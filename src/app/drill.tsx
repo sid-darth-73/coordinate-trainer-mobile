@@ -19,7 +19,8 @@ import {
   getRandomSquare,
   MoveChallenge,
 } from '../utils/chessUtils';
-import { triggerError, triggerSuccess, triggerTap } from '../utils/haptics';
+import { triggerError } from '../utils/haptics';
+import { useSoundEffects } from '../hooks/useSoundEffects';
 
 export default function DrillScreen() {
   const params = useLocalSearchParams<{
@@ -38,6 +39,8 @@ export default function DrillScreen() {
     if (params.orientation === 'random') return Math.random() > 0.5 ? 'white' : 'black';
     return 'white';
   });
+
+  const { playMoveSound, playIllegalSound } = useSoundEffects();
 
   // Layout sizing
   const { width } = useWindowDimensions();
@@ -178,7 +181,7 @@ export default function DrillScreen() {
     setTotalAttempts((prev) => prev + 1);
 
     if (square === targetSquare) {
-      triggerSuccess();
+      playMoveSound();
       setScore((prev) => prev + 1);
       setStreak((prev) => prev + 1);
       setCorrectAttempts((prev) => prev + 1);
@@ -193,10 +196,81 @@ export default function DrillScreen() {
 
       clearFeedbackWithDelay(180);
     } else {
+      playIllegalSound();
       triggerError();
       setStreak(0);
       setFeedback({ square, status: 'wrong' });
       clearFeedbackWithDelay(300);
+    }
+  };
+
+  // Helper to select a piece and calculate legal moves
+  const selectPiece = (square: SquareCoordinate) => {
+    if (isGameOver || !challenge || !currentFen) return;
+    const chess = new Chess(currentFen);
+    const piece = chess.get(square as Square);
+    if (piece && piece.color === chess.turn()) {
+      setSelectedSquare(square);
+      const moves = chess.moves({ square: square as Square, verbose: true });
+      setLegalTargets(moves.map((m) => m.to as SquareCoordinate));
+    }
+  };
+
+  // Shared move executor for both tap-to-move and drag-and-drop
+  const executePieceMove = (from: SquareCoordinate, to: SquareCoordinate) => {
+    if (isGameOver || !challenge || !currentFen) return;
+
+    const chess = new Chess(currentFen);
+
+    try {
+      const attemptedMove = chess.move({
+        from: from as Square,
+        to: to as Square,
+        promotion: 'q',
+      });
+
+      if (attemptedMove) {
+        setTotalAttempts((prev) => prev + 1);
+
+        // Check if this move matches the target SAN
+        const isTarget = attemptedMove.san === challenge.targetSan;
+
+        if (isTarget) {
+          playMoveSound();
+          setScore((prev) => prev + 1);
+          setStreak((prev) => prev + 1);
+          setCorrectAttempts((prev) => prev + 1);
+          setFeedback({ square: to, status: 'correct' });
+          setCurrentFen(chess.fen());
+          setSelectedSquare(null);
+          setLegalTargets([]);
+
+          // Load next challenge after short transition delay
+          setTimeout(() => {
+            const nextCh = generateRandomMoveChallenge();
+            setChallenge(nextCh);
+            setCurrentFen(nextCh.fen);
+            setSelectedSquare(null);
+            setLegalTargets([]);
+            setFeedback(null);
+          }, 350);
+        } else {
+          // Move was legal chess move, but not the requested SAN
+          playIllegalSound();
+          triggerError();
+          setStreak(0);
+          setFeedback({ square: to, status: 'wrong' });
+          setSelectedSquare(null);
+          setLegalTargets([]);
+          clearFeedbackWithDelay(350);
+        }
+      }
+    } catch {
+      // Illegal move
+      playIllegalSound();
+      triggerError();
+      setSelectedSquare(null);
+      setLegalTargets([]);
     }
   };
 
@@ -208,13 +282,7 @@ export default function DrillScreen() {
 
     // If no piece is currently selected:
     if (!selectedSquare) {
-      const piece = chess.get(square as Square);
-      if (piece && piece.color === chess.turn()) {
-        triggerTap();
-        setSelectedSquare(square);
-        const moves = chess.moves({ square: square as Square, verbose: true });
-        setLegalTargets(moves.map((m) => m.to as SquareCoordinate));
-      }
+      selectPiece(square);
       return;
     }
 
@@ -228,62 +296,23 @@ export default function DrillScreen() {
     // If clicking another piece of the current player's color, switch selection:
     const clickedPiece = chess.get(square as Square);
     if (clickedPiece && clickedPiece.color === chess.turn()) {
-      triggerTap();
-      setSelectedSquare(square);
-      const moves = chess.moves({ square: square as Square, verbose: true });
-      setLegalTargets(moves.map((m) => m.to as SquareCoordinate));
+      selectPiece(square);
       return;
     }
 
     // Attempt to make move from selectedSquare to square
-    try {
-      const attemptedMove = chess.move({
-        from: selectedSquare as Square,
-        to: square as Square,
-        promotion: 'q',
-      });
+    executePieceMove(selectedSquare, square);
+  };
 
-      if (attemptedMove) {
-        setTotalAttempts((prev) => prev + 1);
+  const handlePieceDragStart = (square: SquareCoordinate) => {
+    selectPiece(square);
+  };
 
-        // Check if this move matches the target SAN or target move
-        const isTarget = attemptedMove.san === challenge.targetSan;
-
-        if (isTarget) {
-          triggerSuccess();
-          setScore((prev) => prev + 1);
-          setStreak((prev) => prev + 1);
-          setCorrectAttempts((prev) => prev + 1);
-          setFeedback({ square, status: 'correct' });
-          setCurrentFen(chess.fen());
-          setSelectedSquare(null);
-          setLegalTargets([]);
-
-          // Load next challenge after short delay
-          setTimeout(() => {
-            const nextCh = generateRandomMoveChallenge();
-            setChallenge(nextCh);
-            setCurrentFen(nextCh.fen);
-            setSelectedSquare(null);
-            setLegalTargets([]);
-            setFeedback(null);
-          }, 350);
-        } else {
-          // Move was legal, but not the requested SAN
-          triggerError();
-          setStreak(0);
-          setFeedback({ square, status: 'wrong' });
-          setSelectedSquare(null);
-          setLegalTargets([]);
-          clearFeedbackWithDelay(350);
-        }
-      }
-    } catch {
-      // Illegal move
-      triggerError();
-      setSelectedSquare(null);
-      setLegalTargets([]);
+  const handlePieceDrop = (from: SquareCoordinate, to: SquareCoordinate) => {
+    if (from === to) {
+      return; // Dropped on the same square, keeps selected
     }
+    executePieceMove(from, to);
   };
 
   const handleSquarePress = (square: SquareCoordinate) => {
@@ -327,6 +356,8 @@ export default function DrillScreen() {
           legalTargets={legalTargets}
           feedback={feedback}
           onSquarePress={handleSquarePress}
+          onPieceDragStart={handlePieceDragStart}
+          onPieceDrop={handlePieceDrop}
         />
       </View>
 

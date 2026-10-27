@@ -14,6 +14,7 @@ interface ChessSquareProps {
     type: 'p' | 'n' | 'b' | 'r' | 'q' | 'k';
     color: 'w' | 'b';
   } | null;
+  hasPiece?: boolean;
   status?: SquareStatus;
   isLegalMoveTarget?: boolean;
   showFileLabel?: boolean;
@@ -26,12 +27,14 @@ export const ChessSquare = React.memo<ChessSquareProps>(
     square,
     size,
     piece,
+    hasPiece = false,
     status = 'default',
     isLegalMoveTarget = false,
     showFileLabel = false,
     showRankLabel = false,
     onPress,
   }) => {
+    const hasOccupant = Boolean(piece || hasPiece);
     const isLight = isLightSquare(square);
     const baseColor = isLight ? Colors.boardLight : Colors.boardDark;
     const labelColor = isLight ? Colors.boardDark : Colors.boardLight;
@@ -92,7 +95,7 @@ export const ChessSquare = React.memo<ChessSquareProps>(
         )}
 
         {/* Legal Move Destination Hint Dot */}
-        {isLegalMoveTarget && !piece && (
+        {isLegalMoveTarget && !hasOccupant && (
           <View
             style={[
               styles.moveDot,
@@ -106,7 +109,7 @@ export const ChessSquare = React.memo<ChessSquareProps>(
         )}
 
         {/* Legal Capture Ring Indicator */}
-        {isLegalMoveTarget && piece && (
+        {isLegalMoveTarget && hasOccupant && (
           <View
             style={[
               styles.captureRing,
@@ -152,13 +155,13 @@ const styles = StyleSheet.create({
   },
   moveDot: {
     position: 'absolute',
-    backgroundColor: 'rgba(0, 0, 0, 0.25)',
-    zIndex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
+    zIndex: 2,
   },
   captureRing: {
     position: 'absolute',
-    borderWidth: 3.5,
-    borderColor: 'rgba(0, 0, 0, 0.3)',
-    zIndex: 1,
+    borderWidth: 4,
+    borderColor: 'rgba(216, 64, 64, 0.85)',
+    zIndex: 2,
   },
 });
